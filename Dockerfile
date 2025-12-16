@@ -1,4 +1,4 @@
-FROM golang:alpine AS builder
+FROM golang:bookworm AS builder
 WORKDIR /go
 RUN go install -ldflags '-w -s -extldflags "-static"' -tags timetzdata github.com/xvzc/SpoofDPI/cmd/spoofdpi@latest
 
