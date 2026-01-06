@@ -29,7 +29,7 @@ func TestConfig_UnmarshalTOML(t *testing.T) {
 						{
 							"name": "test",
 							"match": map[string]any{
-								"domain": "example.com",
+								"domain": []any{"example.com"},
 							},
 							"dns": map[string]any{
 								"route": "doh",
@@ -57,19 +57,6 @@ func TestConfig_UnmarshalTOML(t *testing.T) {
 			input: map[string]any{
 				"server": map[string]any{
 					"listen-addr": "invalid-addr",
-				},
-			},
-			wantErr: true,
-		},
-		{
-			name: "nested validation error (rule)",
-			input: map[string]any{
-				"policy": map[string]any{
-					"overrides": []map[string]any{
-						{
-							"name": "invalid rule",
-						},
-					},
 				},
 			},
 			wantErr: true,

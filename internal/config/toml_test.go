@@ -446,9 +446,10 @@ func TestFromTomlFile(t *testing.T) {
 					priority = 100
 					block = true
 					match = { 
-						domain = "example.com", 
-						cidr = "192.168.1.0/24", 
-						port = "80-443",
+						domain = ["example.com"], 
+						addr = [
+							{cidr = "192.168.1.0/24", port = "80-443"}
+						]
 					}
 					dns = { 
 						mode = "udp", 
@@ -495,7 +496,7 @@ func TestFromTomlFile(t *testing.T) {
 		assert.True(t, *cfg.Policy.Auto)
 		assert.True(t, *cfg.HTTPS.Disorder)
 		assert.Equal(t, uint8(5), *cfg.HTTPS.FakeCount)
-		assert.Equal(t, []byte{0x01, 0x02, 0x03}, cfg.HTTPS.FakePacket)
+		assert.Equal(t, []byte{0x01, 0x02, 0x03}, cfg.HTTPS.FakePacket.Raw())
 		assert.Equal(t, HTTPSSplitModeChunk, *cfg.HTTPS.SplitMode)
 		assert.Equal(t, uint8(20), *cfg.HTTPS.ChunkSize)
 		assert.True(t, *cfg.HTTPS.Skip)
@@ -507,10 +508,10 @@ func TestFromTomlFile(t *testing.T) {
 		assert.Equal(t, "test-rule", *override.Name)
 		assert.Equal(t, uint16(100), *override.Priority)
 
-		assert.Equal(t, "example.com", *override.Match.Domain)
-		assert.Equal(t, "192.168.1.0/24", override.Match.CIDR.String())
-		assert.Equal(t, uint16(80), *override.Match.PortFrom)
-		assert.Equal(t, uint16(443), *override.Match.PortTo)
+		assert.Equal(t, "example.com", override.Match.Domains[0])
+		assert.Equal(t, "192.168.1.0/24", override.Match.Addrs[0].CIDR.String())
+		assert.Equal(t, uint16(80), *override.Match.Addrs[0].PortFrom)
+		assert.Equal(t, uint16(443), *override.Match.Addrs[0].PortTo)
 
 		assert.Equal(t, DNSModeUDP, *override.DNS.Mode)
 		assert.Equal(t, "8.8.4.4:53", override.DNS.Addr.String())
@@ -521,7 +522,7 @@ func TestFromTomlFile(t *testing.T) {
 
 		assert.False(t, *override.HTTPS.Disorder)
 		assert.Equal(t, uint8(2), *override.HTTPS.FakeCount)
-		assert.Equal(t, []byte{0xAA, 0xBB}, override.HTTPS.FakePacket)
+		assert.Equal(t, []byte{0xAA, 0xBB}, override.HTTPS.FakePacket.Raw())
 		assert.Equal(t, HTTPSSplitModeSNI, *override.HTTPS.SplitMode)
 		assert.Equal(t, uint8(10), *override.HTTPS.ChunkSize)
 		assert.True(t, *override.HTTPS.Skip)

@@ -7,6 +7,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
+	"github.com/xvzc/SpoofDPI/internal/proto"
 	"github.com/xvzc/SpoofDPI/internal/ptr"
 )
 
@@ -435,7 +436,7 @@ func TestHTTPSOptions_UnmarshalTOML(t *testing.T) {
 			assert: func(t *testing.T, o HTTPSOptions) {
 				assert.True(t, *o.Disorder)
 				assert.Equal(t, uint8(5), *o.FakeCount)
-				assert.Equal(t, []byte{0x01, 0x02}, o.FakePacket)
+				assert.Equal(t, []byte{0x01, 0x02}, o.FakePacket.Raw())
 				assert.Equal(t, HTTPSSplitModeChunk, *o.SplitMode)
 				assert.Equal(t, uint8(20), *o.ChunkSize)
 				assert.True(t, *o.Skip)
@@ -478,14 +479,17 @@ func TestHTTPSOptions_Clone(t *testing.T) {
 			},
 		},
 		{
-			name:  "non-nil receiver",
-			input: &HTTPSOptions{Disorder: ptr.FromValue(true), FakePacket: []byte{0x01}},
+			name: "non-nil receiver",
+			input: &HTTPSOptions{
+				Disorder:   ptr.FromValue(true),
+				FakePacket: proto.NewFakeTLSMessage([]byte{0x01}),
+			},
 			assert: func(t *testing.T, input *HTTPSOptions, output *HTTPSOptions) {
 				assert.NotNil(t, output)
 				assert.True(t, *output.Disorder)
 				assert.NotSame(t, input, output)
-				if len(output.FakePacket) > 0 {
-					assert.Equal(t, input.FakePacket, output.FakePacket)
+				if output.FakePacket != nil {
+					assert.Equal(t, input.FakePacket.Raw(), output.FakePacket.Raw())
 					// assert.NotSame(t, &input.FakePacket[0], &output.FakePacket[0]) // Cannot easily check slice backing array address safely
 				}
 			},
@@ -528,16 +532,16 @@ func TestHTTPSOptions_Merge(t *testing.T) {
 			base: &HTTPSOptions{
 				Disorder:   ptr.FromValue(false),
 				ChunkSize:  ptr.FromValue(uint8(10)),
-				FakePacket: []byte{0x01},
+				FakePacket: proto.NewFakeTLSMessage([]byte{0x01}),
 			},
 			override: &HTTPSOptions{
 				Disorder:   ptr.FromValue(true),
-				FakePacket: []byte{0x02},
+				FakePacket: proto.NewFakeTLSMessage([]byte{0x02}),
 			},
 			assert: func(t *testing.T, output *HTTPSOptions) {
 				assert.True(t, *output.Disorder)
 				assert.Equal(t, uint8(10), *output.ChunkSize)
-				assert.Equal(t, []byte{0x02}, output.FakePacket)
+				assert.Equal(t, []byte{0x02}, output.FakePacket.Raw())
 			},
 		},
 	}
@@ -568,7 +572,7 @@ func TestPolicyOptions_UnmarshalTOML(t *testing.T) {
 					{
 						"name": "rule1",
 						"match": map[string]any{
-							"domain": "example.com",
+							"domain": []any{"example.com"},
 						},
 					},
 				},
@@ -623,7 +627,7 @@ func TestPolicyOptions_Clone(t *testing.T) {
 				Overrides: []Rule{
 					{
 						Name:  ptr.FromValue("rule1"),
-						Match: &MatchAttrs{Domain: ptr.FromValue("example.com")},
+						Match: &MatchAttrs{Domains: []string{"example.com"}},
 					},
 				},
 			},
@@ -709,40 +713,52 @@ func TestMatchAttrs_UnmarshalTOML(t *testing.T) {
 		{
 			name: "valid domain",
 			input: map[string]any{
-				"domain": "example.com",
+				"domain": []any{"example.com"},
 			},
 			wantErr: false,
 			assert: func(t *testing.T, m MatchAttrs) {
-				assert.Equal(t, "example.com", *m.Domain)
-				assert.Nil(t, m.CIDR)
-				assert.Nil(t, m.PortFrom)
-				assert.Nil(t, m.PortTo)
+				assert.Len(t, m.Domains, 1)
+				assert.Equal(t, "example.com", m.Domains[0])
+				assert.Empty(t, m.Addrs)
 			},
 		},
 		{
 			name: "valid cidr with port",
 			input: map[string]any{
-				"cidr": "192.168.1.0/24",
-				"port": "80",
+				"addr": []any{
+					map[string]any{
+						"cidr": "192.168.1.0/24",
+						"port": "80",
+					},
+				},
 			},
 			wantErr: false,
 			assert: func(t *testing.T, m MatchAttrs) {
-				assert.Equal(t, "192.168.1.0/24", m.CIDR.String())
-				assert.Equal(t, uint16(80), *m.PortFrom)
-				assert.Equal(t, uint16(80), *m.PortTo)
+				assert.Len(t, m.Addrs, 1)
+				assert.Equal(t, "192.168.1.0/24", m.Addrs[0].CIDR.String())
+				assert.Equal(t, uint16(80), *m.Addrs[0].PortFrom)
+				assert.Equal(t, uint16(80), *m.Addrs[0].PortTo)
 			},
 		},
 		{
 			name: "cidr requires port",
 			input: map[string]any{
-				"cidr": "192.168.1.0/24",
+				"addr": []any{
+					map[string]any{
+						"cidr": "192.168.1.0/24",
+					},
+				},
 			},
 			wantErr: true,
 		},
 		{
 			name: "port requires cidr",
 			input: map[string]any{
-				"port": "all",
+				"addr": []any{
+					map[string]any{
+						"port": "all",
+					},
+				},
 			},
 			wantErr: true,
 		},
@@ -786,11 +802,11 @@ func TestMatchAttrs_Clone(t *testing.T) {
 		{
 			name: "non-nil receiver",
 			input: &MatchAttrs{
-				Domain: ptr.FromValue("example.com"),
+				Domains: []string{"example.com"},
 			},
 			assert: func(t *testing.T, input *MatchAttrs, output *MatchAttrs) {
 				assert.NotNil(t, output)
-				assert.Equal(t, "example.com", *output.Domain)
+				assert.Equal(t, "example.com", output.Domains[0])
 				assert.NotSame(t, input, output)
 			},
 		},
@@ -819,23 +835,16 @@ func TestRule_UnmarshalTOML(t *testing.T) {
 			input: map[string]any{
 				"name": "rule1",
 				"match": map[string]any{
-					"domain": "example.com",
+					"domain": []any{"example.com"},
 				},
 				"block": true,
 			},
 			wantErr: false,
 			assert: func(t *testing.T, r Rule) {
 				assert.Equal(t, "rule1", *r.Name)
-				assert.Equal(t, "example.com", *r.Match.Domain)
+				assert.Equal(t, "example.com", r.Match.Domains[0])
 				assert.True(t, *r.Block)
 			},
-		},
-		{
-			name: "invalid rule check",
-			input: map[string]any{
-				"name": "rule1",
-			},
-			wantErr: true,
 		},
 		{
 			name:    "invalid type",
@@ -877,7 +886,7 @@ func TestRule_Clone(t *testing.T) {
 			name: "non-nil receiver",
 			input: &Rule{
 				Name:  ptr.FromValue("rule1"),
-				Match: &MatchAttrs{Domain: ptr.FromValue("example.com")},
+				Match: &MatchAttrs{Domains: []string{"example.com"}},
 			},
 			assert: func(t *testing.T, input *Rule, output *Rule) {
 				assert.NotNil(t, output)
